@@ -1,4 +1,4 @@
-import MapControls from "./MapControls";
+//import MapControls from "./MapControls";
 import { useState } from "react";
 import { points, type Point } from "../data/points";
 
