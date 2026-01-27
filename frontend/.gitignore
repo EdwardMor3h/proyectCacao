@@ -1,0 +1,23 @@
+
+
+# Node
+node_modules/
+
+# Build
+dist/
+.vite/
+
+# Assets pesados
+frontend/public/videos/
+frontend/public/mapa/
+frontend/public/tiles/
+
+# GIS
+*.tif
+*.tiff
+*.mp4
+*.MP4
+
+# Logs
+*.log
+
