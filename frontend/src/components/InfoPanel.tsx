@@ -25,15 +25,17 @@ export default function InfoPanel({ point }: { point: Point | null }) {
 
 const styles = {
   panel: {
-    position: "absolute" as const,
-    right: 20,
-    bottom: 20,
-    width: 280,
-    background: "#ffffff",
-    padding: 16,
-    borderRadius: 12,
-    boxShadow: "0 10px 25px rgba(0,0,0,0.15)",
-    zIndex: 50,
+  position: "absolute" as const,
+  right: 20,
+  bottom: 20,
+  width: 300,
+  background: "rgba(255,255,255,0.85)",
+  backdropFilter: "blur(10px)",
+  WebkitBackdropFilter: "blur(10px)",
+  padding: 16,
+  borderRadius: 16,
+  boxShadow: "0 20px 40px rgba(0,0,0,0.2)",
+  zIndex: 50,
   },
   text: {
     fontSize: 13,

@@ -39,7 +39,7 @@ export default function App() {
       />
 
       {/* Panel informativo */}
-      <InfoPanel point={activePoint} />
+      {!video && <InfoPanel point={activePoint} />}
     </div>
   );
 }
