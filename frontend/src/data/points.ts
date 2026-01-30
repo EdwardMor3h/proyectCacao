@@ -19,7 +19,7 @@ export const points: Point[]= [
     name: "Vuelo Cacao 1",
     x: 40,
     y: 30,
-    video: "/videos/cacao03.mp4",
+    video: "https://player.cloudinary.com/embed/?cloud_name=dzn7vyidf&public_id=cacao01_-_Trim_-_Trim_fbwwcr",
     area: "2.3 ha",
     cultivo: "Cacao",
     estado: "Producción",
