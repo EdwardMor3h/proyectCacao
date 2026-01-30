@@ -31,7 +31,7 @@ export const points: Point[]= [
     name: "Parcela Norte",
     x: 55,
     y: 45,
-    video: "/videos/cacao01.mp4",
+    video: "https://res.cloudinary.com/dpoxd7mxx/video/upload/Vídeo_sin_título_Hecho_con_Clipchamp_nu6iqb.mp4",
     area: "1.8 ha",
     cultivo: "Cacao",
     estado: "Evaluación",
