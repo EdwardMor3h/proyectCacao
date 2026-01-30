@@ -12,12 +12,25 @@ export default function VideoModal({
   return (
     <div style={overlay} onClick={onClose}>
       <div style={modal} onClick={(e) => e.stopPropagation()}>
-        <video src={video} controls autoPlay style={{ width: "100%" }} />
+        
+        {/* 🟢 LOGO SUPERIOR DERECHO */}
+        <img
+          src="/mapa/logo.png"
+          alt="Logo"
+          style={logo}
+        />
+
+        {/* 🎥 VIDEO */}
+        <video
+          src={video}
+          controls
+          autoPlay
+          style={{ width: "100%", borderRadius: 8 }}
+        />
       </div>
     </div>
   );
 }
-
 const overlay: CSSProperties = {
   position: "fixed",
   inset: 0,
@@ -29,9 +42,19 @@ const overlay: CSSProperties = {
 };
 
 const modal: CSSProperties = {
+  position: "relative",
   width: "75%",
   maxWidth: 1100,
   background: "#000",
   borderRadius: 12,
-  padding: 10,
+  padding: 14,
+};
+
+const logo: CSSProperties = {
+  position: "absolute",
+  top: 12,
+  right: 12,
+  width: 200,          // 👈 pequeño
+  opacity: 0.9,
+  pointerEvents: "none", // 👈 no interfiere con controles
 };
