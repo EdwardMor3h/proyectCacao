@@ -1,5 +1,21 @@
-//import MapControls from "./MapControls";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import Map from "ol/Map";
+import View from "ol/View";
+import TileLayer from "ol/layer/Tile";
+import VectorLayer from "ol/layer/Vector";
+import TileWMS from "ol/source/TileWMS";
+import VectorSource from "ol/source/Vector";
+import XYZ from "ol/source/XYZ";
+import Feature from "ol/Feature";
+import PointGeom from "ol/geom/Point";
+import PolygonGeom from "ol/geom/Polygon";
+import Draw from "ol/interaction/Draw";
+import Modify from "ol/interaction/Modify";
+import Select from "ol/interaction/Select";
+import { click } from "ol/events/condition";
+import { Style, Circle as CircleStyle, Fill, Stroke } from "ol/style";
+import "ol/ol.css";
+
 import { points, type Point } from "../data/points";
 
 interface Props {
@@ -7,139 +23,275 @@ interface Props {
   activePointId: number | null;
 }
 
-export default function InteractiveMap({ onSelect, activePointId }: Props) {
-  const [scale, setScale] = useState(1);
-  const [position, setPosition] = useState({ x: 0, y: 0 });
-  const [dragging, setDragging] = useState(false);
-  const [start, setStart] = useState({ x: 0, y: 0 });
+const rasterExtent: [number, number, number, number] = [
+  771362.2592,
+  9376031.5151,
+  771717.4419,
+  9376311.2042,
+];
 
-  // 🎯 Zoom con rueda (suave)
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    setScale((prev) =>
-      Math.min(Math.max(prev + (e.deltaY > 0 ? -0.1 : 0.1), 1), 3)
-    );
+export default function InteractiveMap({ onSelect }: Props) {
+  const mapRef = useRef<HTMLDivElement | null>(null);
+  const mapInstance = useRef<Map | null>(null);
+  const drawRef = useRef<Draw | null>(null);
+
+  const [drawing, setDrawing] = useState(false);
+
+  useEffect(() => {
+    if (!mapRef.current) return;
+
+    const token = localStorage.getItem("token");
+
+    // ================================
+    // SOURCE PARCELAS
+    // ================================
+    const parcelasSource = new VectorSource();
+
+    const loadParcelas = async () => {
+      try {
+        const res = await fetch("http://localhost:3001/api/parcelas");
+        const data = await res.json();
+
+        parcelasSource.clear();
+
+        data.forEach((p: any) => {
+          const geo = JSON.parse(p.geometry);
+
+          const feature = new Feature({
+            geometry: new PolygonGeom(geo.coordinates),
+            parcelaData: p,
+          });
+
+          parcelasSource.addFeature(feature);
+        });
+      } catch (err) {
+        console.error("Error cargando parcelas", err);
+      }
+    };
+
+    // ================================
+    // CAPA PARCELAS
+    // ================================
+    const parcelasLayer = new VectorLayer({
+      source: parcelasSource,
+      style: new Style({
+        fill: new Fill({ color: "rgba(34,197,94,0.25)" }),
+        stroke: new Stroke({ color: "#16a34a", width: 2 }),
+      }),
+    });
+
+    // ================================
+    // CAPA PUNTOS
+    // ================================
+    const pointLayer = new VectorLayer({
+      source: new VectorSource({
+        features: points.map(
+          (p) =>
+            new Feature({
+              geometry: new PointGeom([p.x, p.y]),
+              pointData: p,
+            })
+        ),
+      }),
+      style: new Style({
+        image: new CircleStyle({
+          radius: 7,
+          fill: new Fill({ color: "#ef4444" }),
+          stroke: new Stroke({ color: "#fff", width: 2 }),
+        }),
+      }),
+    });
+
+    // ================================
+    // MAPA (⭐ CORREGIDO)
+    // ================================
+    const map = new Map({
+      target: mapRef.current,
+      layers: [
+        // Fondo satelital
+        new TileLayer({
+          source: new XYZ({
+            url:
+              "https://server.arcgisonline.com/ArcGIS/rest/services/" +
+              "World_Imagery/MapServer/tile/{z}/{y}/{x}",
+          }),
+        }),
+
+        // TU TIF (GeoServer)
+        new TileLayer({
+          source: new TileWMS({
+            url: "http://localhost:8080/geoserver/cite/wms",
+            params: {
+              LAYERS: "cite:vuelo_opt",
+              TILED: true,
+              TRANSPARENT: true,
+            },
+            serverType: "geoserver",
+          }),
+        }),
+
+        parcelasLayer,
+        pointLayer,
+      ],
+      view: new View({
+        projection: "EPSG:32717",
+        center: [771520, 9376170], // ⭐ FIX pantalla blanca
+        zoom: 18,
+      }),
+    });
+
+    mapInstance.current = map;
+
+    // ⭐ Ajustar automáticamente al raster
+    map.getView().fit(rasterExtent, {
+      padding: [50, 50, 50, 50],
+      duration: 800,
+    });
+
+    loadParcelas();
+
+    // ================================
+    // EDITAR PARCELAS
+    // ================================
+    const select = new Select({
+      condition: click,
+      layers: [parcelasLayer],
+    });
+
+    const modify = new Modify({
+      features: select.getFeatures(),
+    });
+
+    modify.on("modifyend", async (evt) => {
+      if (!token) {
+        alert("Debes iniciar sesión");
+        return;
+      }
+
+      for (const feature of evt.features.getArray()) {
+        const parcela = feature.get("parcelaData");
+        if (!parcela?.id) continue;
+
+        const geom = feature.getGeometry() as PolygonGeom;
+        const coords = geom.getCoordinates()[0];
+
+        await fetch(
+          `http://localhost:3001/api/parcelas/${parcela.id}`,
+          {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ coordinates: coords }),
+          }
+        );
+      }
+
+      await loadParcelas();
+    });
+
+    map.addInteraction(select);
+    map.addInteraction(modify);
+
+    // ================================
+    // CLICK EN PUNTOS
+    // ================================
+    map.on("singleclick", (evt) => {
+      map.forEachFeatureAtPixel(evt.pixel, (raw) => {
+        const feature = raw as Feature;
+        const point = feature.get("pointData");
+        if (point) onSelect(point);
+      });
+    });
+
+    // ================================
+    // HABILITAR DIBUJO
+    // ================================
+    (map as any).enableDraw = () => {
+      if (!token) {
+        alert("Debes iniciar sesión");
+        return;
+      }
+
+      const draw = new Draw({
+        source: parcelasSource,
+        type: "Polygon",
+      });
+
+      draw.on("drawend", async (event) => {
+        const geom = event.feature.getGeometry() as PolygonGeom;
+        const coords = geom.getCoordinates()[0];
+
+        await fetch("http://localhost:3001/api/parcelas", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            nombre: "Nueva Parcela",
+            cultivo: "Cacao",
+            estado: "Producción",
+            area: "1 ha",
+            descripcion: "Creada desde mapa",
+            coordinates: coords,
+          }),
+        });
+
+        await loadParcelas();
+      });
+
+      map.addInteraction(draw);
+      drawRef.current = draw;
+    };
+
+    return () => map.setTarget(undefined);
+  }, [onSelect]);
+
+  // ================================
+  // BOTÓN AGREGAR
+  // ================================
+  const toggleDrawing = () => {
+    if (!mapInstance.current) return;
+
+    const map = mapInstance.current;
+
+    if (drawing) {
+      if (drawRef.current) {
+        map.removeInteraction(drawRef.current);
+        drawRef.current = null;
+      }
+      setDrawing(false);
+      return;
+    }
+
+    (map as any).enableDraw();
+    setDrawing(true);
   };
-
-  // 🖐 Drag mapa
-  const handleMouseDown = (e: React.MouseEvent) => {
-    setDragging(true);
-    setStart({ x: e.clientX - position.x, y: e.clientY - position.y });
-  };
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!dragging) return;
-    setPosition({ x: e.clientX - start.x, y: e.clientY - start.y });
-  };
-
-  const handleMouseUp = () => setDragging(false);
 
   return (
-    <div
-      onWheel={handleWheel}
-      onMouseDown={handleMouseDown}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      style={{
-        ...styles.container,
-        cursor: dragging ? "grabbing" : "grab",
-      }}
-    >
-      {/* 🗺️ MAP WRAPPER */}
-      <div
-        style={{
-          ...styles.mapWrapper,
-          transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
-        }}
-      >
-        <img
-          src="/mapa/mapa_cacao.png"
-          alt="Mapa Cacao"
-          style={styles.map}
-          draggable={false}
-        />
+    <div style={{ flex: 1, position: "relative" }}>
+      <div ref={mapRef} style={{ width: "100%", height: "100%" }} />
 
-        {/* 📍 PUNTOS */}
-        {points.map((p) => (
-          <div
-            key={p.id}
-            onClick={() => onSelect(p)}
-            title={p.name}
-            style={{
-              ...styles.point,
-              left: `${p.x}%`,
-              top: `${p.y}%`,
-              background:
-                activePointId === p.id ? "#22c55e" : "#ef4444",
-              boxShadow:
-                activePointId === p.id
-                  ? "0 0 16px rgba(34,197,94,0.9)"
-                  : "0 0 12px rgba(239,68,68,0.9)",
-              transform:
-                activePointId === p.id
-                  ? "translate(-50%, -50%) scale(1.3)"
-                  : "translate(-50%, -50%) scale(1)",
-            }}
-          />
-        ))}
-      </div>
-
-      {/* 🔄 RESET VIEW */}
       <button
-        onClick={() => {
-          setScale(1);
-          setPosition({ x: 0, y: 0 });
+        onClick={toggleDrawing}
+        style={{
+          position: "absolute",
+          top: 20,
+          left: 20,
+          zIndex: 1000,
+          padding: "10px 14px",
+          borderRadius: 8,
+          border: "none",
+          background: drawing ? "#dc2626" : "#16a34a",
+          color: "white",
+          fontWeight: 600,
+          cursor: "pointer",
         }}
-        style={styles.resetButton}
       >
-        Reset vista
+        {drawing ? "❌ Cancelar dibujo" : "➕ Agregar parcela"}
       </button>
     </div>
   );
 }
-
-/* 🎨 ESTILOS */
-const styles: Record<string, React.CSSProperties> = {
-  container: {
-    flex: 1,
-    overflow: "hidden",
-    background: "#f3f4f6",
-    position: "relative",
-  },
-  mapWrapper: {
-    position: "relative",
-    transformOrigin: "center",
-    transition: "transform 0.2s ease-out",
-  },
-  map: {
-    width: "100%",
-    height: "100%",
-    display: "block",
-    userSelect: "none",
-    pointerEvents: "none",
-  },
-  point: {
-    position: "absolute",
-    width: 18,
-    height: 18,
-    borderRadius: "50%",
-    border: "3px solid white",
-    cursor: "pointer",
-    transition: "all 0.25s ease",
-    animation: "pulse 1.5s infinite",
-  },
-  resetButton: {
-    position: "absolute",
-    top: 20,
-    right: 20,
-    padding: "8px 14px",
-    borderRadius: 10,
-    border: "none",
-    background: "#111827",
-    color: "white",
-    fontSize: 13,
-    cursor: "pointer",
-    boxShadow: "0 6px 16px rgba(0,0,0,0.25)",
-    zIndex: 20,
-  },
-};
